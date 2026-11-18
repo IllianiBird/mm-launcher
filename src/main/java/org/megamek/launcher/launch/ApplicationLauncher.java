@@ -46,6 +46,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class ApplicationLauncher {
+    static final String BASE64_INTRINSICS_MITIGATION = "-XX:-UseBASE64Intrinsics";
+
     private final ProcessRunner runner;
     private final RootCoordinator coordinator;
     private final LaunchSignals signals;
@@ -120,6 +122,9 @@ public final class ApplicationLauncher {
         command.add("--add-opens=java.base/java.util.concurrent=ALL-UNNAMED");
         command.add("-Dsun.awt.disablegrab=true");
         command.addAll(extra);
+        // Java4Shell: the x86-64 AVX-512 Base64 decode intrinsic can write out of bounds on
+        // Java builds before 21.0.13.1. Added after the player's options so it always applies.
+        command.add(BASE64_INTRINSICS_MITIGATION);
         command.add("-cp");
         List<String> jars = new ArrayList<>();
         jars.add(product.jar());

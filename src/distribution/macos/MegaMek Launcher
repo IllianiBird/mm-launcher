@@ -40,7 +40,8 @@ CONTENTS=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)
 
 if [ -x "$CONTENTS/runtime/bin/java" ]; then
     unset JDK_JAVA_OPTIONS JAVA_TOOL_OPTIONS _JAVA_OPTIONS
-    exec "$CONTENTS/runtime/bin/java" -cp "$CONTENTS/app/lib/*" org.megamek.launcher.DesktopLauncher "$@"
+    exec "$CONTENTS/runtime/bin/java" -XX:-UseBASE64Intrinsics -cp "$CONTENTS/app/lib/*" \
+        org.megamek.launcher.DesktopLauncher "$@"
 fi
 
 find_java() {
@@ -84,4 +85,5 @@ if [ "$JAVA_FEATURE" -lt 21 ]; then
 fi
 
 unset JDK_JAVA_OPTIONS JAVA_TOOL_OPTIONS _JAVA_OPTIONS
-exec "$JAVA_COMMAND" -cp "$CONTENTS/app/lib/*" org.megamek.launcher.DesktopLauncher "$@"
+exec "$JAVA_COMMAND" -XX:-UseBASE64Intrinsics -cp "$CONTENTS/app/lib/*" \
+    org.megamek.launcher.DesktopLauncher "$@"

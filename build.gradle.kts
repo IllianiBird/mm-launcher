@@ -263,6 +263,8 @@ abstract class WindowsInstallerMsi : DefaultTask() {
                 "--description", "MegaMek Launcher graphical desktop launcher",
                 "--main-jar", mainJarFileName.get(),
                 "--main-class", "org.megamek.launcher.DesktopLauncher",
+                // Java4Shell: disable the vulnerable x86-64 Base64 intrinsic in the launcher JVM.
+                "--java-options", "-XX:-UseBASE64Intrinsics",
                 "--icon", icon.absolutePath,
                 "--resource-dir", wixResources.get().asFile.absolutePath,
                 // Games launched from the bundled JVM need modules beyond the launcher's own set.
@@ -454,6 +456,8 @@ abstract class NativeInstaller : DefaultTask() {
                 "--description", "MegaMek Launcher graphical desktop launcher",
                 "--main-jar", mainJarFileName.get(),
                 "--main-class", "org.megamek.launcher.DesktopLauncher",
+                // Java4Shell: disable the vulnerable x86-64 Base64 intrinsic in the launcher JVM.
+                "--java-options", "-XX:-UseBASE64Intrinsics",
                 "--runtime-image", runtime.absolutePath)
             if (type == "pkg") {
                 args("--mac-package-identifier", "org.megamek.launcher",
@@ -797,6 +801,8 @@ launch4j {
     restartOnCrash.set(false)
     requires64Bit.set(true)
     jreMinVersion.set("21")
+    // Java4Shell: disable the vulnerable x86-64 Base64 intrinsic in the launcher JVM.
+    jvmOptions.set(setOf("-XX:-UseBASE64Intrinsics"))
     // Borrowed from the MegaMek project icon until a dedicated launcher icon
     // exists; MegaMek is the recognizable "face" of the project.
     icon.set(file("src/distribution/windows/icon.ico").absolutePath)
@@ -839,6 +845,7 @@ val createPortableExe = tasks.register<Launch4jLibraryTask>("createPortableExe")
     requires64Bit.set(true)
     jreMinVersion.set("21")
     bundledJrePath.set("runtime")
+    jvmOptions.set(setOf("-XX:-UseBASE64Intrinsics"))
     icon.set(file("src/distribution/windows/icon.ico").absolutePath)
     manifest.set(file("src/distribution/windows/launcher.manifest").absolutePath)
     productName.set("MegaMek Launcher")

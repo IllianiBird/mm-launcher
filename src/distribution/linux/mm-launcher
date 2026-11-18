@@ -41,7 +41,8 @@ SHARED_LIB="$APP_ROOT/MegaMek Launcher.app/Contents/app/lib"
 
 if [ -x "$APP_ROOT/runtime/bin/java" ]; then
     unset JDK_JAVA_OPTIONS JAVA_TOOL_OPTIONS _JAVA_OPTIONS
-    exec "$APP_ROOT/runtime/bin/java" -cp "$SHARED_LIB/*" org.megamek.launcher.DesktopLauncher "$@"
+    exec "$APP_ROOT/runtime/bin/java" -XX:-UseBASE64Intrinsics -cp "$SHARED_LIB/*" \
+        org.megamek.launcher.DesktopLauncher "$@"
 fi
 
 find_java() {
@@ -78,4 +79,5 @@ if [ "$JAVA_FEATURE" -lt 21 ]; then
 fi
 
 unset JDK_JAVA_OPTIONS JAVA_TOOL_OPTIONS _JAVA_OPTIONS
-exec "$JAVA_COMMAND" -cp "$SHARED_LIB/*" org.megamek.launcher.DesktopLauncher "$@"
+exec "$JAVA_COMMAND" -XX:-UseBASE64Intrinsics -cp "$SHARED_LIB/*" \
+    org.megamek.launcher.DesktopLauncher "$@"
