@@ -189,7 +189,13 @@ class NormalInstallServiceTest {
             List<String> defaults = launcher.command(latest, product, java);
             assertTrue(defaults.stream().noneMatch(argument -> argument.matches("-XX:[+-]Use\\w*GC")
                     || argument.contains("ZGenerational")), "Java picks the collector: " + product);
+            assertEquals(defaults.indexOf("-cp") - 1, defaults.indexOf("-XX:-UseBASE64Intrinsics"),
+                    "the Java4Shell mitigation is always passed: " + product);
         }
+        List<String> reenabled = launcher.command(latest, "megamek", java, new LaunchOptions(null, null,
+                null, null, "-XX:+UseBASE64Intrinsics", null));
+        assertTrue(reenabled.indexOf("-XX:-UseBASE64Intrinsics") > reenabled.indexOf("-XX:+UseBASE64Intrinsics"),
+                "player Java arguments cannot re-enable the vulnerable Base64 intrinsic");
         List<String> zgc = launcher.command(latest, "megamek", java, new LaunchOptions(null, null, null,
                 null, "-XX:+UseZGC -XX:+ZGenerational", null));
         assertTrue(zgc.contains("-XX:+UseZGC") && zgc.contains("-XX:+ZGenerational"),

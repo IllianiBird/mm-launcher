@@ -261,6 +261,10 @@ The launcher adds no garbage collector option, so applications use the Java runt
 collector (G1). Generational ZGC lagged the user interface noticeably on the bundled Temurin
 21.0.13. A player can still choose a collector (for example `-XX:+UseZGC -XX:+ZGenerational`) in the
 Java arguments.
+The launcher always passes `-XX:-UseBASE64Intrinsics`, after the player's Java arguments, to the
+games and to its own JVM. This mitigates Java4Shell (an out-of-bounds write in the x86-64 AVX-512
+Base64 decode intrinsic) on Java runtimes before 21.0.13.1, including the bundled Temurin 21.0.13+9.
+The flag is shared HotSpot code, so ARM runtimes accept it.
 The user directory is passed as `-Dmegamek.userDir`, which MegaMek 0.51.01 and later treat as
 a launcher-managed override of the User Directory preference.
 
