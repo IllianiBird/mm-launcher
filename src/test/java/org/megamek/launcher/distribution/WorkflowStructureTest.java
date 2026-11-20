@@ -132,6 +132,8 @@ class WorkflowStructureTest {
         ), actions(installers));
         assertEquals("temurin", installers.path("steps").get(1).path("with").path("distribution").asText());
         assertEquals("21", installers.path("steps").get(1).path("with").path("java-version").asText());
+        assertTrue(installers.path("steps").get(1).path("with").path("check-latest").asBoolean(),
+                "installers must not bundle the runner's preinstalled, possibly vulnerable Temurin");
 
         JsonNode wix = step(installers, "Install verified WiX 3.14 binaries");
         assertEquals("runner.os == 'Windows'", wix.path("if").asText());
@@ -844,6 +846,7 @@ class WorkflowStructureTest {
                 desktop.path("if").asText());
         assertFalse(desktop.has("continue-on-error"));
         assertEquals("21", desktop.path("steps").get(1).path("with").path("java-version").asText());
+        assertTrue(desktop.path("steps").get(1).path("with").path("check-latest").asBoolean());
         assertEquals(3, count(text, " nativeGuiTest"));
         assertTrue(step(desktop, "Desktop tests on Linux with Xvfb")
                 .path("run").asText().contains("xvfb-run -a ./gradlew nativeGuiTest"));

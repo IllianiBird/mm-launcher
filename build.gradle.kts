@@ -1032,10 +1032,33 @@ val nativePlatform = when {
 }
 val javaHome = extensions.getByType(JavaToolchainService::class.java)
     .launcherFor(java.toolchain).map { it.metadata.installationPath.asFile }
+// Java4Shell: Java before 21.0.13.1 has the vulnerable x86-64 Base64 intrinsic, and hosted
+// runners preinstall older Temurin builds, so packaging refuses to bundle a stale toolchain.
+val verifyBundledJava = tasks.register("verifyBundledJava") {
+    group = "distribution"
+    description = "Fails if the Java toolchain bundled into the launcher predates 21.0.13.1."
+    val minimum = listOf(21, 0, 13, 1)
+    val releaseFile = javaHome.map { File(it, "release") }
+    doLast {
+        val release = releaseFile.get()
+        val version = release.readLines().firstOrNull { it.startsWith("JAVA_VERSION=") }
+            ?.substringAfter('=')?.trim('"')
+            ?: error("The Java toolchain release file has no JAVA_VERSION: $release")
+        val parts = (version.split('.').map { it.toIntOrNull() ?: 0 } + List(4) { 0 }).take(4)
+        val older = parts.zip(minimum).firstOrNull { (have, need) -> have != need }
+            ?.let { (have, need) -> have < need } ?: false
+        check(!older) {
+            "The Java toolchain is $version; bundling requires Java ${minimum.joinToString(".")} " +
+                "or newer (Java4Shell). Install a newer Temurin 21."
+        }
+    }
+}
+
 val nativeRuntimeDirectory = layout.buildDirectory.dir("packaging/native-runtime")
 val linkPortableRuntime = tasks.register<LinkPortableRuntime>("linkPortableRuntime") {
     group = "distribution"
     description = "Links a complete host-native Java 21 runtime including bin/java and legal notices."
+    dependsOn(verifyBundledJava)
     modules.set(layout.dir(javaHome.map { File(it, "jmods") }))
     jlink.set(layout.file(javaHome.map {
         File(it, "bin/jlink${if (OperatingSystem.current().isWindows) ".exe" else ""}")
@@ -1206,7 +1229,7 @@ val windowsInstallerFolderPicker =
 val windowsInstallerMsi = tasks.register<WindowsInstallerMsi>("windowsInstallerMsi") {
     group = "distribution"
     description = "Builds the per-user Windows MSI installer with a bundled Java runtime via jpackage."
-    dependsOn(stageWindowsInstallerInput)
+    dependsOn(stageWindowsInstallerInput, verifyBundledJava)
 
     val toolchainLauncher = project.extensions
         .getByType(JavaToolchainService::class.java)

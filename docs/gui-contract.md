@@ -263,8 +263,9 @@ collector (G1). Generational ZGC lagged the user interface noticeably on the bun
 Java arguments.
 The launcher always passes `-XX:-UseBASE64Intrinsics`, after the player's Java arguments, to the
 games and to its own JVM. This mitigates Java4Shell (an out-of-bounds write in the x86-64 AVX-512
-Base64 decode intrinsic) on Java runtimes before 21.0.13.1, including the bundled Temurin 21.0.13+9.
-The flag is shared HotSpot code, so ARM runtimes accept it.
+Base64 decode intrinsic) on Java runtimes before 21.0.13.1. The bundled runtime is fixed from
+Temurin 21.0.13.1 (`verifyBundledJava` refuses to package older toolchains); the flag remains for
+players' own Java runtimes. The flag is shared HotSpot code, so ARM runtimes accept it.
 The user directory is passed as `-Dmegamek.userDir`, which MegaMek 0.51.01 and later treat as
 a launcher-managed override of the User Directory preference.
 

@@ -76,6 +76,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          # Hosted runners preinstall older Temurin builds; always fetch the newest 21.
+          check-latest: true
       - uses: gradle/actions/setup-gradle@v4
       - name: Desktop tests on Windows
         if: runner.os == 'Windows'
