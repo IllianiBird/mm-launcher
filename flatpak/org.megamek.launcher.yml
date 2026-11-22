@@ -38,12 +38,13 @@
 # archive, desktop entry, metainfo and icon, then builds the bundle.
 #
 # Inside the sandbox the launcher is not at /opt/megamek-launcher, so native
-# self-update is unavailable and the launcher only notifies about new releases;
-# users update with `flatpak update`.
+# self-update is unavailable and the launcher only notifies about new releases.
+# The bundle has no application repository, so `flatpak update` refreshes only the
+# runtime; users update the launcher by installing a newer bundle.
 
 id: org.megamek.launcher
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 command: mm-launcher
 

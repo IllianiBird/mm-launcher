@@ -39,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -67,9 +68,19 @@ class HomeRedactionTest {
     @Test
     void siblingFoldersSharingTheHomePrefixAreNotRedacted() throws Exception {
         Path home = Files.createDirectories(temp.toRealPath().resolve("al"));
-        Path sibling = temp.toRealPath().resolve("alice").resolve("MegaMek");
 
-        assertEquals("see " + sibling, SanitizedErrors.redactHome("see " + sibling, home.toString()));
-        assertEquals("see ~", SanitizedErrors.redactHome("see " + home, home.toString()));
+        for (String name : List.of("alice", "al.ice", "al..ice", "al-ice", "al_ice", "al@corp", "al+ice")) {
+            Path sibling = temp.toRealPath().resolve(name).resolve("MegaMek");
+            assertEquals("see " + sibling, SanitizedErrors.redactHome("see " + sibling, home.toString()));
+        }
+    }
+
+    @Test
+    void homeIsRedactedBeforeSeparatorsAndPunctuation() throws Exception {
+        Path home = Files.createDirectories(temp.toRealPath().resolve("al"));
+
+        for (String after : List.of("", "/x", "\\x", ".", "...", ". Next", ".\nNext", ": denied", "'", ")", " x")) {
+            assertEquals("see ~" + after, SanitizedErrors.redactHome("see " + home + after, home.toString()));
+        }
     }
 }

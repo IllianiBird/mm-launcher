@@ -342,14 +342,15 @@ in, runs `flatpak-builder`, and writes `MegaMek-Launcher-<version>-linux-x64.fla
 
 ```bash
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+flatpak install --user flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
 ./gradlew buildFlatpakBundle
 flatpak install --user build/distributions/MegaMek-Launcher-<version>-linux-x64.flatpak
 flatpak run org.megamek.launcher
 ```
 
 The bundle names Flathub as its runtime repository, so installing it elsewhere fetches the
-runtime. A bundle installed this way does not receive `flatpak update`; install a newer bundle.
+runtime. The bundle has no application repository, so `flatpak update` refreshes only that runtime,
+not the launcher or its bundled Java.
 
 The **Launcher build checks** workflow's advisory `Flatpak bundle (advisory) - linux-x64` job builds
 the bundle on every installer run and uploads it as the `MegaMek-Launcher-linux-x64-flatpak`
@@ -357,8 +358,8 @@ artifact. The job uses `continue-on-error`, so Flatpak or Flathub failures never
 or a release candidate. Its artifact name deliberately does not match the release workflow's
 `MegaMek-Launcher-*-installers` download, so it is never a release asset.
 
-Inside the sandbox the launcher is notify-only, like portable copies: users update with
-`flatpak update`. Flatpak redirects `XDG_DATA_HOME` and `XDG_STATE_HOME` to
+Inside the sandbox the launcher is notify-only, like portable copies: update it by installing a
+newer `.flatpak` bundle. Flatpak redirects `XDG_DATA_HOME` and `XDG_STATE_HOME` to
 `~/.var/app/org.megamek.launcher/`, so game installations and the registry are separate from
 `.deb`/`.rpm` installs, and the folder chooser sees only paths the manifest grants. Games run in
 the same sandbox with the same permissions, and the native packages' per-game desktop entries are

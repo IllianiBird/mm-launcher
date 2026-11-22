@@ -56,6 +56,12 @@ public final class SanitizedErrors {
             "(?i)(\"?(?:password|passwd|secret|token|access[_-]?token|api[_-]?key|"
                     + "authorization|auth)\"?\\s*[:=]\\s*)(\"(?:\\\\.|[^\"])*\"|[^,\\s;}]+)");
 
+    // /home/al must not turn its siblings /home/alice or /home/al.ice into ~ice or ~.ice. Dots
+    // continue a name only before another name character, so a sentence ending in "/home/al." is
+    // still redacted. Spaces also end a name: exposing the home is worse than shortening a sibling.
+    private static final String FOLDER_NAME_END =
+            "(?![\\p{L}\\p{N}_@+-]|\\.+[\\p{L}\\p{N}_@+-])";
+
     private SanitizedErrors() {
     }
 
@@ -203,9 +209,7 @@ public final class SanitizedErrors {
 
     private static String replaceIgnoreCase(String value, String target, String replacement) {
         if (target.isEmpty()) return value;
-        // Only whole folder names: /home/al must not turn /home/alice into ~ice.
-        return Pattern.compile(Pattern.quote(target) + "(?![\\p{L}\\p{N}_-])",
-                        Pattern.CASE_INSENSITIVE)
+        return Pattern.compile(Pattern.quote(target) + FOLDER_NAME_END, Pattern.CASE_INSENSITIVE)
                 .matcher(value).replaceAll(Matcher.quoteReplacement(replacement));
     }
 
