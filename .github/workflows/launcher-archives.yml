@@ -487,12 +487,12 @@ jobs:
   flatpak:
     needs: release-tooling
     if: needs.release-tooling.outputs.build_installers == 'true'
-    name: Flatpak bundle (advisory) - linux-x64
+    name: Flatpak bundle - linux-x64
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Experimental and advisory: a Flatpak or Flathub failure is visible here but never
-    # fails installer CI or the release workflow that calls this one.
-    continue-on-error: true
+    # The Flatpak is a release asset, so it must succeed whenever an exact release candidate is
+    # built. In ordinary CI a Flatpak or Flathub failure is visible here without failing the run.
+    continue-on-error: ${{ !inputs.source_commit }}
     env:
       SOURCE_COMMIT: ${{ inputs.source_commit || github.sha }}
     steps:
@@ -521,12 +521,18 @@ jobs:
         shell: bash
         run: ./gradlew "-PbuildIdentifier=${SOURCE_COMMIT}" buildFlatpakBundle
 
-      # A separate artifact name keeps the bundle out of the release workflow's
-      # MegaMek-Launcher-*-installers download, which accepts only the release assets.
-      - name: Upload Flatpak bundle and SHA-256 file (CI artifact, not a release asset)
+      - name: Verify the Flatpak checksum and start the launcher without installing
+        shell: bash
+        run: |
+          (cd build/distributions && sha256sum --check --strict MegaMek-Launcher-*-linux-x64.flatpak.sha256)
+          # --runtime checks the runtime players get; the default is the larger SDK.
+          flatpak build --runtime build/packaging/flatpak/work/app mm-launcher --startup-check |
+            grep '^MM-LAUNCHER-STARTUP-OK '
+
+      - name: Upload Flatpak bundle and SHA-256 file
         uses: actions/upload-artifact@v4
         with:
-          name: MegaMek-Launcher-linux-x64-flatpak
+          name: MegaMek-Launcher-linux-x64-flatpak-installers
           path: |
             build/distributions/MegaMek-Launcher-*-linux-x64.flatpak
             build/distributions/MegaMek-Launcher-*-linux-x64.flatpak.sha256

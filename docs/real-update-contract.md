@@ -239,6 +239,14 @@ automatically only when its child is dead or its PID is demonstrably reused. A v
 the explicit close-all acknowledgement. `unblock-launch` only checks/clears eligible coordination
 state and never terminates anything.
 
+Each Flatpak run has its own process-ID namespace, so a recorded PID is meaningless to another run or to a
+launcher outside Flatpak. A game started in Flatpak is therefore run through `flock --no-fork`, which
+holds `<launch id>.alive` beside the ledger until the game ends. Every launcher tests that lock rather than
+the PID: a held lock blocks mutation even with acknowledgement, and so does one that cannot be tested. Inside Flatpak, an
+entry without a lock was started outside it. It blocks mutation until the launcher that started it clears
+it or the computer restarts. Launches are not blocked by either. Launcher versions before this rule
+treat Flatpak entries as dead.
+
 Users must close **all** MegaMek, MekHQ, and MegaMekLab applications before Apply/recovery,
 including manually started instances. Coordination prevents cooperating current launcher
 processes from publishing launches while updating the same root and pending transactions block

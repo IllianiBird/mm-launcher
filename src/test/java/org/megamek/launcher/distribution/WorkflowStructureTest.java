@@ -44,9 +44,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class WorkflowStructureTest {
     private static final Path WORKFLOW =
@@ -76,7 +74,7 @@ class WorkflowStructureTest {
 
         JsonNode jobs = root.path("jobs");
         assertEquals(3, jobs.size(),
-                "installer matrix, advisory Flatpak and offline release tooling contracts should run");
+                "installer matrix, Flatpak and offline release tooling contracts should run");
         JsonNode tooling = jobs.path("release-tooling");
         assertEquals("ubuntu-24.04", tooling.path("runs-on").asText());
         assertEquals(List.of("actions/checkout@v4"), actions(tooling));
@@ -245,8 +243,10 @@ class WorkflowStructureTest {
         assertEquals("release-tooling", flatpak.path("needs").asText());
         assertEquals(installers.path("if").asText(), flatpak.path("if").asText());
         assertEquals("ubuntu-24.04", flatpak.path("runs-on").asText());
-        assertTrue(flatpak.path("continue-on-error").asBoolean(),
-                "the experimental Flatpak must never fail installer CI or release candidates");
+        assertEquals("Flatpak bundle - linux-x64", flatpak.path("name").asText(),
+                "release provenance requires this exact job");
+        assertEquals("${{ !inputs.source_commit }}", flatpak.path("continue-on-error").asText(),
+                "only ordinary CI, never an exact release candidate, may tolerate a Flatpak failure");
         assertEquals("${{ inputs.source_commit || github.sha }}",
                 flatpak.path("steps").get(0).path("with").path("ref").asText());
         assertEquals(List.of(
@@ -259,11 +259,15 @@ class WorkflowStructureTest {
                 "the Flatpak must not bundle the runner's preinstalled, possibly vulnerable Temurin");
         assertTrue(step(flatpak, "Build Flatpak bundle (never install)").path("run").asText()
                 .contains("./gradlew \"-PbuildIdentifier=${SOURCE_COMMIT}\" buildFlatpakBundle"));
-        JsonNode flatpakUpload = step(flatpak,
-                "Upload Flatpak bundle and SHA-256 file (CI artifact, not a release asset)");
+        String flatpakCheck = step(flatpak,
+                "Verify the Flatpak checksum and start the launcher without installing").path("run").asText();
+        assertTrue(flatpakCheck.contains("sha256sum --check --strict"));
+        assertTrue(flatpakCheck.contains("flatpak build --runtime")
+                && flatpakCheck.contains("--startup-check"));
+        assertFalse(flatpakCheck.contains("flatpak install"), "CI never installs the bundle");
+        JsonNode flatpakUpload = step(flatpak, "Upload Flatpak bundle and SHA-256 file");
         String flatpakArtifact = flatpakUpload.path("with").path("name").asText();
-        assertEquals("MegaMek-Launcher-linux-x64-flatpak", flatpakArtifact);
-        assertFalse(flatpakArtifact.endsWith("-installers"),
+        assertEquals("MegaMek-Launcher-linux-x64-flatpak-installers", flatpakArtifact,
                 "release staging downloads every MegaMek-Launcher-*-installers artifact");
         assertEquals("error", flatpakUpload.path("with").path("if-no-files-found").asText());
         assertEquals(List.of(

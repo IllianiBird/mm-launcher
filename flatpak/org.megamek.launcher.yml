@@ -29,7 +29,7 @@
 # <https://www.xbox.com/en-US/developers/rules> and it is not endorsed by or
 # affiliated with Microsoft.
 
-# Experimental Flatpak that repackages the Java-bundled Linux x64 portable archive.
+# Flatpak that repackages the Java-bundled Linux x64 portable archive.
 # The archive's own runtime/bin/java runs the launcher and the games it starts, so
 # no Java SDK extension is needed.
 #
@@ -57,12 +57,11 @@ finish-args:
   - --device=dri
   # Game sound effects.
   - --socket=pulseaudio
-  # LaunchSignals and RootCoordinator write under user.home, which Flatpak does
-  # not redirect; keep ~/.mm-launcher in the sandbox's writable app folder.
-  - --persist=.mm-launcher
-  # The Swing folder chooser does not use the file chooser portal. Uncomment to
-  # let players choose installation folders outside the sandbox.
-  # - --filesystem=home
+  # The Swing file choosers do not use the file chooser portal, so without this players could
+  # not choose install folders, adopt existing installs, or open units and campaigns in the games.
+  # It also shares ~/.mm-launcher with launchers outside Flatpak, which coordinates updates of an
+  # install they both use. Folders outside home, such as other drives, remain unavailable.
+  - --filesystem=home
 
 modules:
   - name: mm-launcher

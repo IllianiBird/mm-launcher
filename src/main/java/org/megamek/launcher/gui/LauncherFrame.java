@@ -33,25 +33,15 @@
 
 package org.megamek.launcher.gui;
 
+import org.megamek.launcher.channel.*;
 import org.megamek.launcher.design.swing.TokenPanel;
 import org.megamek.launcher.design.swing.TokenTooltips;
-
+import org.megamek.launcher.diagnostics.BugReport;
+import org.megamek.launcher.diagnostics.SanitizedErrors;
 import org.megamek.launcher.gui.AutomaticInstallationChecks.InstallationCheck;
 import org.megamek.launcher.internationalization.I18n;
 import org.megamek.launcher.internationalization.LocalizedIOException;
 import org.megamek.launcher.internationalization.LocalizedText;
-
-import org.megamek.launcher.channel.ChannelCatalog;
-import org.megamek.launcher.channel.ChannelPreference;
-import org.megamek.launcher.channel.ChannelPreferenceStore;
-import org.megamek.launcher.channel.ChannelUpdateChecker;
-import org.megamek.launcher.channel.FollowChannel;
-import org.megamek.launcher.channel.SuiteReleaseRecord;
-import org.megamek.launcher.channel.QuickInstallOption;
-import org.megamek.launcher.channel.QuickInstallSnapshot;
-import org.megamek.launcher.channel.SelectedChannelReleaseCatalog;
-import org.megamek.launcher.diagnostics.BugReport;
-import org.megamek.launcher.diagnostics.SanitizedErrors;
 import org.megamek.launcher.launch.LaunchObserver;
 import org.megamek.launcher.launch.LaunchOptions;
 import org.megamek.launcher.launch.LaunchOptionsStore;
@@ -66,52 +56,10 @@ import org.megamek.launcher.registry.InstallationRecord;
 import org.megamek.launcher.registry.RegistryData;
 import org.megamek.launcher.release.OfficialRepository;
 import org.megamek.launcher.release.ReleaseCatalog;
-import org.megamek.launcher.update.OwnershipPolicy;
-import org.megamek.launcher.update.ImportedCopyAdoptionService;
-import org.megamek.launcher.update.InstallationRepairService;
-import org.megamek.launcher.update.PreparedAdoption;
-import org.megamek.launcher.update.PreparedUpdate;
-import org.megamek.launcher.update.UpdatePreviewService;
-import org.megamek.launcher.update.RealUpdateService;
-import org.megamek.launcher.update.UninstallService;
-import org.megamek.launcher.update.LauncherSelfUpdate;
-import org.megamek.launcher.update.StrictPathSafety;
+import org.megamek.launcher.update.*;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JFileChooser;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JMenu;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
-import javax.swing.Scrollable;
-import javax.swing.JTextArea;
-import javax.swing.JTextField;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
-import javax.swing.SwingWorker;
-import javax.swing.WindowConstants;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Rectangle;
-import java.awt.Toolkit;
-import java.awt.Window;
+import javax.swing.*;
+import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -126,14 +74,8 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.text.NumberFormat;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.HashSet;
-import java.util.HashMap;
-import java.util.IdentityHashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -3838,9 +3780,14 @@ public final class LauncherFrame extends JFrame {
     static boolean confirmLauncherDownload(Window owner, GuiScale scale, LauncherSelfUpdate.Release release) {
         return LauncherAlertDialog.showConfirm(owner, scale,
                 I18n.getTextAt(BUNDLE, "LauncherFrame.updateMegaMekLauncher"),
-                I18n.getFormattedTextAt(BUNDLE, "LauncherFrame.launcherDownloadPrompt",
-                        String.valueOf(release.version())),
+                launcherDownloadPrompt(release.version(), FlatpakSandbox.active()),
                 I18n.getTextAt(BUNDLE, "LauncherFrame.openReleasePage"));
+    }
+
+    static String launcherDownloadPrompt(String version, boolean flatpak) {
+        return flatpak
+                ? I18n.getFormattedTextAt(BUNDLE, "LauncherFrame.launcherFlatpakDownloadPrompt", version)
+                : I18n.getFormattedTextAt(BUNDLE, "LauncherFrame.launcherDownloadPrompt", version);
     }
 
     /**

@@ -30,7 +30,7 @@ PROVENANCE_ARCHIVE_LIMIT = 64 * 1024
 SIGNING_RECORD_LIMIT = 4096
 RELEASE_RUN = re.compile(r"^Launcher-Release-Run: ([1-9][0-9]{0,19})$", re.MULTILINE)
 INSTALLERS = (
-    "windows-x64.msi", "linux-x64.deb", "linux-x64.rpm", "linux-x64-portable.tar.gz",
+    "windows-x64.msi", "linux-x64.deb", "linux-x64.rpm", "linux-x64-portable.tar.gz", "linux-x64.flatpak",
     "macos-intel.pkg", "macos-apple-silicon.pkg",
 )
 APPLE_PLATFORMS = ("macos-intel", "macos-apple-silicon")
@@ -692,7 +692,8 @@ def verified_release_push(github, root, environment):
             or not isinstance(run.get("repository"), dict)
             or run["repository"].get("full_name") != REPOSITORY):
         raise ReleaseError("Candidate provenance is not the official release workflow at its captured base")
-    names = {"prepare", "publish", "installers / Release tooling contracts"}
+    names = {"prepare", "publish", "installers / Release tooling contracts",
+             "installers / Flatpak bundle - linux-x64"}
     names.update(f"installers / Native installers - {platform}"
                  for platform in ("windows-x64", "linux-x64", "macos-intel", "macos-apple-silicon"))
     jobs = {}
@@ -794,6 +795,7 @@ def publish(github, version, commit, assets, signing_record=None, certificate_sh
             "Linux desktops. Linux requires PolicyKit and apt-get or dnf. "
             "Other Linux distributions can use the Java-bundled portable tar.gz, which checks for new "
             "versions but is updated manually. "
+            "The Flatpak bundle runs on any Linux x64 desktop with Flatpak and is updated by installing a newer bundle. "
             f"{signing_notice}"
             "SHA-256 files provide integrity checks, not independent publisher signing.\n")
     release = github.request("POST", f"{API}/releases", {

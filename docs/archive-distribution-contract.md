@@ -13,7 +13,9 @@ The Linux job also builds and runs `verifyPortableArchive` on
 `MegaMek-Launcher-<version>-linux-x64-portable.tar.gz`, the Java-bundled host-native archive
 for distributions the `.deb`/`.rpm` packages and self-update do not serve. It is a release
 asset alongside the installers but is never self-updated: released portable copies only
-offer to open the newer release's page.
+offer to open the newer release's page. A separate job builds
+`MegaMek-Launcher-<version>-linux-x64.flatpak` from that archive; it is also a release asset that only
+offers to open the newer release's page.
 Each has an exact-name `.sha256` counterpart. MSI uses jpackage's
 full-module runtime and WiX 3.14; Linux and macOS use a host-native
 `ALL-MODULE-PATH` jlink image passed to jpackage via `--runtime-image`.
@@ -135,7 +137,7 @@ confined to official release preflight and enabled macOS setup, never Windows/Li
 Artifacts come from the current workflow run, not a previous build or independently selected
 latest artifact. A read-only release-assets job validates the complete native build outputs
 and optionally signs the Windows MSI. It also binds both enabled Apple notarization records
-to the Mac packages and their post-stapling checksums. It uploads the final twelve-file installer/archive/checksum set as
+to the Mac packages and their post-stapling checksums. It uploads the final fourteen-file installer/archive/Flatpak/checksum set as
 one immutable artifact. Publication and finalization both download that exact artifact ID,
 not the unsigned build outputs or a name selected from the newest run. Artifact IDs are captured
 as job outputs, so finalization-only reruns retain the original signed bytes even when the
@@ -216,9 +218,9 @@ platforms (Linux uses Xvfb). Failures stay visibly red with retained reports; th
 required branch checks.
 
 Before any release/tag write, [launcher_release.py](../scripts/launcher_release.py) requires exactly
-the six expected installer/archive and checksum pairs, nonempty regular files, matching SHA-256 values, and
+the seven expected installer/archive/Flatpak and checksum pairs, nonempty regular files, matching SHA-256 values, and
 installers no larger than the updater's 300 MiB limit. It creates a new lightweight `v<version>` tag
-at the tested commit, uploads all twelve files, and requires GitHub's uploaded state, immutable IDs,
+at the tested commit, uploads all fourteen files, and requires GitHub's uploaded state, immutable IDs,
 sizes, exact download URLs, and SHA-256 digests to match. A temporary GitHub draft is only an
 upload implementation detail: no human draft-review gate is added. After all checks, that same
 job publishes a normal stable release and verifies the latest-stable endpoint consumed by the
@@ -267,7 +269,7 @@ read SignPath secrets. Only the official manually dispatched release workflow ca
 production signing; a separate manual onboarding workflow submits test-signing only.
 
 Leave `LAUNCHER_SIGNING_ENABLED` unset or exactly `false` until the account is approved and
-configured. The disabled path preserves all six installer/archive and checksum pairs byte-for-byte and
+configured. The disabled path preserves all seven installer/archive/Flatpak and checksum pairs byte-for-byte and
 needs no SignPath account or token. Any other nonempty value except exactly `true` is an error,
 not permission to fall back to unsigned publication.
 

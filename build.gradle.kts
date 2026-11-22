@@ -1253,9 +1253,9 @@ tasks.register<Test>("verifyPortableArchive") {
 }
 
 // ---------------------------------------------------------------------------
-// Experimental Flatpak bundle: repackages the Linux x64 portable archive, whose
-// bundled Java runs the launcher and its games. CI uploads it as an advisory
-// artifact only; it is not a release asset and is never part of `build`.
+// Flatpak bundle: repackages the Linux x64 portable archive, whose
+// bundled Java runs the launcher and its games. It is a release asset, but never
+// part of `build`.
 // ---------------------------------------------------------------------------
 if (nativePlatform == "linux-x64") {
     val flatpakApplicationId = "org.megamek.launcher"
@@ -1301,7 +1301,7 @@ if (nativePlatform == "linux-x64") {
     val flatpakBundleFileName = "MegaMek-Launcher-${project.version}-$nativePlatform.flatpak"
     val flatpakBundle = tasks.register<FlatpakBundle>("flatpakBundle") {
         group = "distribution"
-        description = "Builds the experimental single-file Flatpak bundle with flatpak-builder."
+        description = "Builds the single-file Flatpak bundle with flatpak-builder."
         dependsOn(stageFlatpakManifest)
         manifestDirectory.set(flatpakManifestDirectory)
         manifestFileName.set("$flatpakApplicationId.yml")
@@ -1319,7 +1319,7 @@ if (nativePlatform == "linux-x64") {
     }
     tasks.register("buildFlatpakBundle") {
         group = "distribution"
-        description = "Builds the experimental Flatpak bundle and its SHA-256 file."
+        description = "Builds the Flatpak bundle and its SHA-256 file."
         dependsOn(flatpakBundleChecksum)
     }
 }
