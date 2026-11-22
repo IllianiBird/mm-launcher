@@ -64,8 +64,8 @@ public final class RootCoordinator {
     public static final String CLOSE_ALL_CONFIRMATION = "CLOSE-ALL-SUITE-APPS-AND-APPLY";
     public static final String UPDATE_NAMESPACE = ".mm-launcher-update";
     private static final int SCHEMA = 1;
-    /** Covers the moment between publishing a child and that child taking its launch lock. */
-    private static final Duration LOCK_GRACE = Duration.ofSeconds(10);
+    /** A started application normally takes its launch lock within milliseconds. */
+    private static final Duration LOCK_LIMIT = Duration.ofSeconds(30);
     /** Clock corrections may move the boot time slightly. */
     private static final Duration BOOT_SLACK = Duration.ofMinutes(1);
     private final Path directory;
@@ -273,8 +273,13 @@ public final class RootCoordinator {
          * launcher can tell whether it has ended. Elsewhere the command is returned unchanged.
          */
         public List<String> holdLaunchLock(List<String> command) throws IOException {
-            if (!writesMarkers || !launchLock.canHold()) return command;
+            if (!writesMarkers || !launchLock.sandboxed()) return command;
             if (!markerOwned) throw new IOException("no launch start owns this marker");
+            if (!launchLock.canHold()) {
+                clearLaunchMarker(launchId); // Nothing has been started yet.
+                throw new IOException("starting an application in Flatpak requires flock, which "
+                        + "protects running applications from updates");
+            }
             Path file = launchLockFile(launchId);
             try {
                 Files.createFile(file);
@@ -285,13 +290,37 @@ public final class RootCoordinator {
             return launchLock.hold(file, command);
         }
 
+        /**
+         * Publishes the started child. A child with a launch lock is published only once it holds
+         * that lock or has ended, so a free lock on a RUNNING entry always means it has ended.
+         * The caller still holds the root gate meanwhile.
+         */
         public void markChild(ProcessIdentity child) throws IOException {
             if (!writesMarkers || child == null) return;
             if (!markerOwned) throw new IOException("no launch start owns this marker");
+            Path lock = launchLockFile(launchId);
+            if (existsNoFollow(lock)) awaitLaunchLock(lock, child);
             List<LaunchEntry> next = new ArrayList<>(entries);
             next.replaceAll(entry -> entry.id().equals(launchId)
                     ? new LaunchEntry(launchId, child, "RUNNING") : entry);
             writeEntries(next);
+        }
+
+        private void awaitLaunchLock(Path file, ProcessIdentity child) throws IOException {
+            long deadline = System.nanoTime() + LOCK_LIMIT.toNanos();
+            while (launchLock.probe(file) != LaunchLock.State.HELD
+                    && ProcessHandle.of(child.pid()).filter(ProcessHandle::isAlive).isPresent()) {
+                if (System.nanoTime() - deadline >= 0) {
+                    throw new IOException("the started application did not take its launch lock");
+                }
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted before the started application took its "
+                            + "launch lock", interrupted);
+                }
+            }
         }
 
         public void clearLaunchMarker() throws IOException {
@@ -370,10 +399,17 @@ public final class RootCoordinator {
             List<LaunchEntry> retained = new ArrayList<>();
             for (LaunchEntry entry : prior) {
             LaunchLock.State held = launchLockState(entry);
+            if (held != null && held != LaunchLock.State.HELD && startedBeforeBoot(entry)) continue;
+            // An untestable lock blocks mutation in every phase. Launches still reject an
+            // unverified start below.
             if (held == LaunchLock.State.HELD || held == LaunchLock.State.UNKNOWN
-                    && "RUNNING".equals(entry.phase())) {
-                if (!launch) throw new IOException("a launcher-started suite application is still "
-                        + "running in Flatpak; close it before update or recovery");
+                    && (!launch || "RUNNING".equals(entry.phase()))) {
+                if (!launch) throw new IOException(held == LaunchLock.State.HELD
+                        ? "a launcher-started suite application is still running in Flatpak; "
+                        + "close it before update or recovery"
+                        : "a suite application started in Flatpak may still be running, and its "
+                        + "lock cannot be tested here; close it and open the Flatpak launcher, or "
+                        + "restart the computer, before update or recovery");
                 retained.add(entry);
                 continue;
             }
@@ -419,15 +455,12 @@ public final class RootCoordinator {
             if (!retained.equals(prior)) writeEntries(retained);
         }
 
-        /** Null when the launch has no lock; a lock not yet taken counts as held for a moment. */
+        /** Null when the launch has no lock. */
         private LaunchLock.State launchLockState(LaunchEntry entry) throws IOException {
             Path file = launchLockFile(entry.id());
             if (file == null || !existsNoFollow(file)) return null;
             rejectUnexpected(file, false);
-            LaunchLock.State state = launchLock.probe(file);
-            boolean justStarted = "RUNNING".equals(entry.phase()) && Files.getLastModifiedTime(file,
-                    LinkOption.NOFOLLOW_LINKS).toInstant().isAfter(Instant.now().minus(LOCK_GRACE));
-            return state == LaunchLock.State.FREE && justStarted ? LaunchLock.State.HELD : state;
+            return launchLock.probe(file);
         }
 
         private boolean startedBeforeBoot(LaunchEntry entry) {

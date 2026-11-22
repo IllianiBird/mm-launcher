@@ -38,11 +38,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -52,6 +56,8 @@ class LaunchLockTest {
     /** Stands in for a PID from another namespace: never a live process here. */
     private static final ProcessIdentity INVISIBLE =
             new ProcessIdentity(Integer.MAX_VALUE, Instant.now().toString());
+    private static final ProcessIdentity BEFORE_BOOT =
+            new ProcessIdentity(Integer.MAX_VALUE, "2001-01-01T00:00:00Z");
 
     @TempDir Path temp;
     private Path root;
@@ -71,11 +77,10 @@ class LaunchLockTest {
             try (RootCoordinator.Lease lease = flatpak().acquireForLaunch(root)) {
                 lease.markLaunchStarting();
                 game = new ProcessBuilder(lease.holdLaunchLock(List.of("sleep", "60"))).start();
+                awaitState(onlyLock(), LaunchLock.State.HELD);
                 lease.markChild(INVISIBLE);
             }
             Path lock = onlyLock();
-            awaitState(lock, LaunchLock.State.HELD);
-            expireGrace(lock);
 
             for (RootCoordinator coordinator : List.of(flatpak(), host())) {
                 assertThrows(IOException.class, () -> coordinator.acquire(root, true),
@@ -109,30 +114,86 @@ class LaunchLockTest {
     }
 
     @Test
-    void aJustPublishedGameCountsAsRunningBeforeItTakesTheLock() throws Exception {
+    void aSlowStartKeepsTheRootGateUntilTheGameHoldsItsLock() throws Exception {
+        Process game = null;
         try (RootCoordinator.Lease lease = flatpak().acquireForLaunch(root)) {
             lease.markLaunchStarting();
-            lease.holdLaunchLock(List.of("unused"));
-            lease.markChild(INVISIBLE);
-        }
-        assertThrows(IOException.class, () -> flatpak().acquire(root, true));
+            List<String> command = new ArrayList<>(List.of("sh", "-c",
+                    "while [ ! -e \"$0\" ]; do sleep 0.05; done; exec \"$@\"",
+                    temp.resolve("go").toString()));
+            command.addAll(lease.holdLaunchLock(List.of("sleep", "60")));
+            game = new ProcessBuilder(command).start();
+            ProcessIdentity child = ProcessIdentity.of(game.toHandle());
+            CompletableFuture<Void> published = CompletableFuture.runAsync(() -> {
+                try {
+                    lease.markChild(child);
+                } catch (IOException error) {
+                    throw new UncheckedIOException(error);
+                }
+            });
 
-        expireGrace(onlyLock());
-        try (RootCoordinator.Lease ignored = flatpak().acquire(root, false)) {
-            // Never locked within the grace period: the game has ended.
+            assertThrows(TimeoutException.class, () -> published.get(500, TimeUnit.MILLISECONDS));
+            assertThrows(IOException.class, () -> host().acquire(root, true));
+
+            Files.createFile(temp.resolve("go"));
+            published.get(20, TimeUnit.SECONDS);
+            assertEquals(LaunchLock.State.HELD, new LaunchLock(false, FLOCK).probe(onlyLock()));
+        } finally {
+            if (game != null) game.destroyForcibly();
         }
     }
 
     @Test
-    void aLockThatCannotBeTestedBlocksUpdates() throws Exception {
+    void aGameThatEndsBeforeTakingItsLockIsReclaimed() throws Exception {
+        publishWithFreeLock(INVISIBLE);
+        try (RootCoordinator.Lease ignored = host().acquire(root, false)) {
+            assertEquals(0, locks().size());
+        }
+    }
+
+    @Test
+    void flatpakRefusesToLaunchWithoutALockAndLeavesNothingBehind() throws Exception {
+        try (RootCoordinator.Lease lease = new RootCoordinator(coordination,
+                new LaunchLock(true, temp.resolve("missing-flock"))).acquireForLaunch(root)) {
+            lease.markLaunchStarting();
+            assertThrows(IOException.class, () -> lease.holdLaunchLock(List.of("game")));
+        }
+        assertEquals(0, locks().size());
+        try (RootCoordinator.Lease ignored = host().acquire(root, false)) {
+            // No start is recorded.
+        }
+    }
+
+    @Test
+    void aLockThatCannotBeTestedBlocksUpdatesOfARunningGame() throws Exception {
+        publishWithFreeLock(INVISIBLE);
+        assertThrows(IOException.class, () -> withoutFlock().acquire(root, true));
+        try (RootCoordinator.Lease ignored = withoutFlock().acquireForLaunch(root)) {
+            // Further launches stay available.
+        }
+    }
+
+    @Test
+    void aLockThatCannotBeTestedBlocksUpdatesAndLaunchesAfterAnInterruptedStart() throws Exception {
         try (RootCoordinator.Lease lease = flatpak().acquireForLaunch(root)) {
             lease.markLaunchStarting();
-            lease.holdLaunchLock(List.of("unused"));
-            lease.markChild(INVISIBLE);
+            lease.holdLaunchLock(List.of("game"));
         }
-        expireGrace(onlyLock());
-        assertThrows(IOException.class, () -> new RootCoordinator(coordination,
-                new LaunchLock(false, temp.resolve("missing-flock"))).acquire(root, true));
+        assertThrows(IOException.class, () -> withoutFlock().acquire(root, true));
+        assertThrows(IOException.class, () -> withoutFlock().acquireForLaunch(root));
+        assertEquals(1, locks().size());
+
+        try (RootCoordinator.Lease ignored = flatpak().acquire(root, true)) {
+            assertEquals(0, locks().size(), "a launcher that can test the lock clears the start");
+        }
+    }
+
+    @Test
+    void aRestartClearsALockThatCannotBeTested() throws Exception {
+        publishWithFreeLock(BEFORE_BOOT);
+        try (RootCoordinator.Lease ignored = withoutFlock().acquire(root, false)) {
+            assertEquals(0, locks().size());
+        }
     }
 
     @Test
@@ -148,7 +209,7 @@ class LaunchLockTest {
             // The launcher that can see the process reclaims its dead entry.
         }
 
-        publishWithoutLock(new ProcessIdentity(Integer.MAX_VALUE, "2001-01-01T00:00:00Z"));
+        publishWithoutLock(BEFORE_BOOT);
         try (RootCoordinator.Lease ignored = flatpak().acquire(root, false)) {
             // No process survives a restart.
         }
@@ -171,6 +232,18 @@ class LaunchLockTest {
         }
     }
 
+    private void publishWithFreeLock(ProcessIdentity identity) throws Exception {
+        try (RootCoordinator.Lease lease = flatpak().acquireForLaunch(root)) {
+            lease.markLaunchStarting();
+            lease.holdLaunchLock(List.of("game"));
+            lease.markChild(identity);
+        }
+    }
+
+    private RootCoordinator withoutFlock() {
+        return new RootCoordinator(coordination, new LaunchLock(false, temp.resolve("missing-flock")));
+    }
+
     private RootCoordinator flatpak() {
         return new RootCoordinator(coordination, new LaunchLock(true, FLOCK));
     }
@@ -188,10 +261,6 @@ class LaunchLockTest {
     private Path onlyLock() throws IOException {
         assertEquals(1, locks().size());
         return locks().getFirst();
-    }
-
-    private static void expireGrace(Path lock) throws IOException {
-        Files.setLastModifiedTime(lock, FileTime.from(Instant.now().minusSeconds(60)));
     }
 
     private static void awaitState(Path lock, LaunchLock.State expected) throws Exception {
