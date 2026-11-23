@@ -521,13 +521,18 @@ jobs:
         shell: bash
         run: ./gradlew "-PbuildIdentifier=${SOURCE_COMMIT}" buildFlatpakBundle
 
-      - name: Verify the Flatpak checksum and start the launcher without installing
+      - name: Verify the Flatpak checksum, its launch lock and startup without installing
         shell: bash
         run: |
           (cd build/distributions && sha256sum --check --strict MegaMek-Launcher-*-linux-x64.flatpak.sha256)
           # --runtime checks the runtime players get; the default is the larger SDK.
           flatpak build --runtime build/packaging/flatpak/work/app mm-launcher --startup-check |
             grep '^MM-LAUNCHER-STARTUP-OK '
+          # Every game launch in Flatpak runs through flock, and is refused without it. Fail here
+          # if a runtime update drops or breaks it.
+          flatpak build --runtime build/packaging/flatpak/work/app sh -c \
+            'lock=$(mktemp) && /usr/bin/flock --exclusive --no-fork "$lock" echo flock-ok' |
+            grep '^flock-ok$'
 
       - name: Upload Flatpak bundle and SHA-256 file
         uses: actions/upload-artifact@v4

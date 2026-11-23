@@ -260,10 +260,13 @@ class WorkflowStructureTest {
         assertTrue(step(flatpak, "Build Flatpak bundle (never install)").path("run").asText()
                 .contains("./gradlew \"-PbuildIdentifier=${SOURCE_COMMIT}\" buildFlatpakBundle"));
         String flatpakCheck = step(flatpak,
-                "Verify the Flatpak checksum and start the launcher without installing").path("run").asText();
+                "Verify the Flatpak checksum, its launch lock and startup without installing")
+                .path("run").asText();
         assertTrue(flatpakCheck.contains("sha256sum --check --strict"));
         assertTrue(flatpakCheck.contains("flatpak build --runtime")
                 && flatpakCheck.contains("--startup-check"));
+        assertTrue(flatpakCheck.contains("/usr/bin/flock --exclusive --no-fork"),
+                "every Flatpak game launch needs the runtime's flock");
         assertFalse(flatpakCheck.contains("flatpak install"), "CI never installs the bundle");
         JsonNode flatpakUpload = step(flatpak, "Upload Flatpak bundle and SHA-256 file");
         String flatpakArtifact = flatpakUpload.path("with").path("name").asText();

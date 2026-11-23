@@ -352,11 +352,12 @@ runtime. The bundle has no application repository, so `flatpak update` refreshes
 not the launcher or its bundled Java.
 
 The bundle is a release asset. The **Launcher build checks** workflow's `Flatpak bundle - linux-x64`
-job builds it on every installer run, checks its checksum, starts the launcher in the runtime players
-get without installing it, and uploads it as `MegaMek-Launcher-linux-x64-flatpak-installers`, which the
-release workflow stages with the other packages. In ordinary CI the job uses `continue-on-error`, so a
-Flatpak or Flathub failure is visible without failing the run. A release candidate does not: if the
-Flatpak fails, the release fails.
+job builds it on every installer run, checks its checksum, starts the launcher in the runtime
+players get without installing it, checks that runtime's `flock` (every game launch needs it), and
+uploads it as `MegaMek-Launcher-linux-x64-flatpak-installers`, which the release workflow stages
+with the other packages. In ordinary CI the job uses `continue-on-error`, so a Flatpak or Flathub
+failure is visible without failing the run. A release candidate does not: if the Flatpak fails, the
+release fails.
 
 The launcher can't update itself inside Flatpak. When a newer release exists it offers to open the
 release page; players download the new `.flatpak` and install it over the old one, which keeps games
