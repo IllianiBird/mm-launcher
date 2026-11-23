@@ -10,7 +10,8 @@ pairs: Windows x64 `.msi`, Linux x64 `.deb` and `.rpm`, and macOS `.pkg` on both
 Intel and Apple Silicon, plus a Java-bundled Linux x64 portable `tar.gz` and its checksum for
 distributions without `apt-get` or `dnf` (for example Arch-based ones). It does not build or upload
 the other portable archives,
-install packages on CI runners, create a release, sign, or notarize. The separate
+install packages on CI runners, create a release, sign, or notarize. A separate job also builds
+the Linux x64 Flatpak bundle and its checksum (see [Flatpak](#flatpak)). The separate
 manual `Publish launcher release` workflow reuses these same builds and tests before publication,
 with independent, disabled-by-default Windows MSI and Apple signing/notarization modes.
 Only an official release call can opt the reusable Mac packaging jobs into Apple credentials. Each
@@ -160,9 +161,9 @@ not newer than every published stable launcher release. It never runs automatica
 or pull requests. Major/minor version changes remain explicit source changes.
 
 The workflow calls the ordinary native-installer CI at the captured candidate commit and
-waits for all four platforms' builds, package inspections, required headless tests, and release tooling
-tests to pass. A read-only release-assets job stages this run's five installers, the Linux portable
-archive and their six checksum
+waits for all four platforms' builds, the Flatpak build, package inspections, required headless tests,
+and release tooling tests to pass. A read-only release-assets job stages this run's five installers, the
+Linux portable archive, the Flatpak bundle and their seven checksum
 files, optionally signs and verifies the Windows MSI, validates any enabled Apple notarization
 records from the Mac packaging jobs, and retains one immutable final asset
 set. The write-enabled publication job downloads that exact artifact ID, checks the filenames and
@@ -262,7 +263,10 @@ See [the distribution contract](docs/archive-distribution-contract.md) for valid
 The desktop default registry is `%LOCALAPPDATA%\MegaMek Launcher\launcher-registry.json`
 on Windows, `~/Library/Application Support/MegaMek Launcher/launcher-registry.json`
 on macOS, and `$XDG_STATE_HOME/MegaMek Launcher/launcher-registry.json` on Linux
-(fallback `~/.megamek-launcher/launcher-registry.json`). On first default GUI
+(fallback `~/.megamek-launcher/launcher-registry.json`). Links in these platform
+base folders (`user.home`, `XDG_STATE_HOME`, `XDG_DATA_HOME`, `LOCALAPPDATA`) are
+resolved once, so Fedora Atomic systems such as Bazzite, where `/home` links to
+`/var/home`, work; every launcher folder below them still rejects links. On first default GUI
 launch, a valid schema-3 registry from the previous `MegaMek` location is
 copied along with its launcher settings, receipt/metadata directory, and logs
 to a new directory via atomic rename. The old state remains intact as a
@@ -325,6 +329,55 @@ used by installer CI. `--version` and
 
 See the [archive distribution contract](docs/archive-distribution-contract.md) for layouts,
 program-files/user-data separation, native runner coverage, and release limitations.
+
+## Flatpak
+
+The [`flatpak/`](flatpak) templates repackage the Java-bundled Linux x64 portable archive as a
+Flatpak. On Linux x64, `./gradlew buildFlatpakBundle` stages them under
+`build/packaging/flatpak/manifest` with the launcher version, archive name and source commit date filled
+in, runs `flatpak-builder`, and writes `MegaMek-Launcher-<version>-linux-x64.flatpak` and its
+`.sha256` file to `build/distributions/`. It is not part of `build` and installs nothing. It needs
+`flatpak`, `flatpak-builder` and the manifest's runtime and SDK:
+
+```bash
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+./gradlew buildFlatpakBundle
+flatpak install --user build/distributions/MegaMek-Launcher-<version>-linux-x64.flatpak
+flatpak run org.megamek.launcher
+```
+
+The bundle names Flathub as its runtime repository, so installing it elsewhere fetches the
+runtime. The bundle has no application repository, so `flatpak update` refreshes only that runtime,
+not the launcher or its bundled Java.
+
+The bundle is a release asset. The **Launcher build checks** workflow's `Flatpak bundle - linux-x64`
+job builds it on every installer run, checks its checksum, starts the launcher in the runtime
+players get without installing it, checks that runtime's `flock` (every game launch needs it), and
+uploads it as `MegaMek-Launcher-linux-x64-flatpak-installers`, which the release workflow stages
+with the other packages. In ordinary CI the job uses `continue-on-error`, so a Flatpak or Flathub
+failure is visible without failing the run. A release candidate does not: if the Flatpak fails, the
+release fails.
+
+The launcher can't update itself inside Flatpak. When a newer release exists it offers to open the
+release page; players download the new `.flatpak` and install it over the old one, which keeps games
+and settings.
+
+The manifest grants the home folder, because Swing's file choosers do not use Flatpak's file portal:
+without it players could not choose install folders, adopt existing installs, or open files from
+`~/Downloads` in the games. Folders outside home, such as other drives, are unavailable unless the player
+grants them, for example with `flatpak override --user --filesystem=/path org.megamek.launcher`.
+Flatpak still redirects `XDG_DATA_HOME` and `XDG_STATE_HOME` to `~/.var/app/org.megamek.launcher/`, so the
+default install folder and the registry are separate from `.deb`/`.rpm` installs. Games run in the
+same sandbox with the same permissions, and the native packages' per-game desktop entries are not
+installed.
+
+Every Flatpak run has its own process list, so process IDs cannot show whether a game is still running.
+Games started in Flatpak instead hold a lock file for as long as they run; see
+[the update contract](docs/real-update-contract.md#launchupdate-coordination-and-limitation).
+
+Flathub would require a from-source build (OpenJDK 21 SDK extension and offline
+Gradle dependencies) instead of this repackaged archive.
 
 ## Per-application Home and installation management
 

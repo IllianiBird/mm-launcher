@@ -38,8 +38,8 @@ import org.megamek.launcher.onboarding.InstallationInspector;
 import org.megamek.launcher.onboarding.Product;
 import org.megamek.launcher.registry.InstallationRecord;
 
-import java.io.IOException;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -175,6 +175,7 @@ public final class ApplicationLauncher {
             java.util.concurrent.atomic.AtomicReference<LaunchSignals.Watch> watch =
                     new java.util.concurrent.atomic.AtomicReference<>();
             lease.markLaunchStarting();
+            command = lease.holdLaunchLock(command);
             boolean childCompleted = false;
             java.util.concurrent.atomic.AtomicReference<IOException> markerFailure =
                     new java.util.concurrent.atomic.AtomicReference<>();

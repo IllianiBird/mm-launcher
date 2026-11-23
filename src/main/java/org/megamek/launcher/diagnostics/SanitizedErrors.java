@@ -34,6 +34,7 @@
 package org.megamek.launcher.diagnostics;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import org.megamek.launcher.update.StrictPathSafety;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -54,6 +55,12 @@ public final class SanitizedErrors {
     private static final Pattern SECRET_FIELD = Pattern.compile(
             "(?i)(\"?(?:password|passwd|secret|token|access[_-]?token|api[_-]?key|"
                     + "authorization|auth)\"?\\s*[:=]\\s*)(\"(?:\\\\.|[^\"])*\"|[^,\\s;}]+)");
+
+    // /home/al must not turn its siblings /home/alice or /home/al.ice into ~ice or ~.ice. Dots
+    // continue a name only before another name character, so a sentence ending in "/home/al." is
+    // still redacted. Spaces also end a name: exposing the home is worse than shortening a sibling.
+    private static final String FOLDER_NAME_END =
+            "(?![\\p{L}\\p{N}_@+-]|\\.+[\\p{L}\\p{N}_@+-])";
 
     private SanitizedErrors() {
     }
@@ -91,14 +98,36 @@ public final class SanitizedErrors {
         String sanitized = replaceUrls(bounded);
         sanitized = BEARER.matcher(sanitized).replaceAll("Bearer [redacted]");
         sanitized = SECRET_FIELD.matcher(sanitized).replaceAll("$1[redacted]");
-        String home = System.getProperty("user.home");
-        if (home != null && !home.isBlank()) {
-            String normalizedHome = Path.of(home).toAbsolutePath().normalize().toString();
-            sanitized = replaceIgnoreCase(sanitized, normalizedHome, "~");
-            sanitized = replaceIgnoreCase(sanitized,
-                    normalizedHome.replace('\\', '/'), "~");
+        return redactHome(sanitized, System.getProperty("user.home"));
+    }
+
+    /** Replaces the home folder, resolved form first, with {@code ~}; package-private for tests. */
+    static String redactHome(String sanitized, String home) {
+        if (home == null || home.isBlank()) return sanitized;
+        HomeForms forms = homeForms(home);
+        // Launcher paths use the resolved home (for example /var/home/<user> when /home is
+        // a link). Replace it first: the lexical home can be a suffix of it.
+        if (!forms.canonical().equals(forms.normalized())) {
+            sanitized = replaceIgnoreCase(sanitized, forms.canonical(), "~");
+            sanitized = replaceIgnoreCase(sanitized, forms.canonical().replace('\\', '/'), "~");
         }
-        return sanitized;
+        sanitized = replaceIgnoreCase(sanitized, forms.normalized(), "~");
+        return replaceIgnoreCase(sanitized, forms.normalized().replace('\\', '/'), "~");
+    }
+
+    private record HomeForms(String home, String normalized, String canonical) {}
+
+    // Resolving the home touches the filesystem; do it once per user.home value, not per message.
+    private static volatile HomeForms cachedHomeForms;
+
+    private static HomeForms homeForms(String home) {
+        HomeForms cached = cachedHomeForms;
+        if (cached != null && cached.home().equals(home)) return cached;
+        Path path = Path.of(home);
+        HomeForms forms = new HomeForms(home, path.toAbsolutePath().normalize().toString(),
+                StrictPathSafety.canonicalPlatformBase(path).toString());
+        cachedHomeForms = forms;
+        return forms;
     }
 
     private static void appendDisplay(StringBuilder result, Throwable error, String prefix,
@@ -180,7 +209,7 @@ public final class SanitizedErrors {
 
     private static String replaceIgnoreCase(String value, String target, String replacement) {
         if (target.isEmpty()) return value;
-        return Pattern.compile(Pattern.quote(target), Pattern.CASE_INSENSITIVE)
+        return Pattern.compile(Pattern.quote(target) + FOLDER_NAME_END, Pattern.CASE_INSENSITIVE)
                 .matcher(value).replaceAll(Matcher.quoteReplacement(replacement));
     }
 
