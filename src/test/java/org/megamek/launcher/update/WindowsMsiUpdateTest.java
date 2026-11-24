@@ -314,6 +314,27 @@ class WindowsMsiUpdateTest {
                 < script.lastIndexOf("Start-Process -FilePath"));
         assertTrue(script.contains("'/passive'"));
         assertFalse(script.contains("'/qn'"));
+        assertTrue(script.contains("$start.UseShellExecute=$false"));
+        String lower = script.toLowerCase(java.util.Locale.ROOT);
+        assertTrue(lower.contains("system32") && lower.contains("msiexec.exe';"), "installer path must be absolute");
+        assertFalse(script.contains("-Wait -PassThru"), "Start-Process can lose the installer exit code");
+        assertTrue(script.indexOf("$p.WaitForExit()") < script.indexOf("$installerExited=$true"));
+        assertTrue(script.contains("staged MSI kept"));
+        assertTrue(script.indexOf("Test-InstallerBusy) {") < script.indexOf("[IO.File]::Delete($msi)"));
+        assertTrue(script.indexOf("IsNullOrEmpty($outcome)") < script.indexOf("[IO.File]::Replace"));
+    }
+
+    @Test void emptyResultFromAnOlderHelperIsAFailureThatDoesNotBlockRetry() throws Exception {
+        Path path = report("");
+        var result = LauncherSelfUpdate.consumeReport(path, "0.1.0",
+                () -> fail("an unknown result must not verify MSI"), (file, pid, started) -> fail("not pending"));
+        assertFalse(result.installed());
+        assertEquals(LauncherSelfUpdate.ReportState.FAILED, result.state());
+        assertTrue(result.message().contains("did not record a Windows Installer result"), result.message());
+        assertTrue(result.message().contains("0.1.0"));
+        assertTrue(result.message().contains(LauncherSelfUpdate.installerLog(path).toString()));
+        assertFalse(Files.exists(path));
+        assertNull(LauncherSelfUpdate.consumeReport(path, "0.1.0", () -> {}));
     }
 
     @Test void cleanupAndRebootCompletionReportsKeepTheirExactTargetVersion() throws Exception {

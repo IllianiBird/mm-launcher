@@ -607,7 +607,15 @@ macOS's Installer wizard remain visible. Portable and development entry points a
 
 The helper waits for the original launcher process to exit, checks the staged
 checksum again, and launches Windows Installer with `/passive /norestart` and a
-verbose diagnostic log. It imports its own Windows PowerShell utility module
+verbose diagnostic log. It starts the system `msiexec.exe` directly with
+`System.Diagnostics.Process` (no shell launch) and waits on that process handle for its
+exit code; `Start-Process -Wait -PassThru` can return early with no exit code when
+another program intercepts the shell launch. The staged MSI is deleted only after that
+exit code is confirmed and Windows Installer's `Global\_MSIExecute` mutex is free (up
+to 5 minutes); otherwise the MSI is kept and the result says why. The helper never
+writes an empty result: anything unrecorded becomes `handoff failed: ...`. Empty reports
+from older helpers are shown once as a failed update with both log paths, then
+acknowledged so a later check can retry. It imports its own Windows PowerShell utility module
 explicitly, avoiding incompatible PowerShell 7 module search paths inherited by
 Java processes. Progress is visible without a setup wizard. Installer
 exit 0 is successful; 3010 is successful with a restart-required notice, never
@@ -652,7 +660,7 @@ Material Windows regressions execute the real helper script with harmless
 installer/launcher substitutes; they never run `msiexec` or install software.
 They cover parent shutdown, real Windows PowerShell report replacement,
 installer failure/cancellation, reboot-required success, checksum drift, cleanup
-warnings, report-write errors, and relaunch ordering. GUI tests exercise the
+warnings, MSI retention until the installer exits, report-write errors, and relaunch ordering. GUI tests exercise the
 themed consent, and download tests cover byte progress and cancellation.
 
 Run the self-update regressions on Windows; only the second command needs a display:

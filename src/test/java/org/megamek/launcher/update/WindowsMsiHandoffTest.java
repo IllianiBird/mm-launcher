@@ -214,6 +214,19 @@ class WindowsMsiHandoffTest {
         }
     }
 
+    @Test void stagedMsiRemainsUntilTheInstallerHasExited() throws Exception {
+        Path observed = temp.resolve("observed.txt");
+        Files.writeString(installer, "@echo off\r\nping -n 3 127.0.0.1 > nul\r\n"
+                + "if exist \"" + msi + "\" (echo present> \"" + observed + "\") else (echo missing> \""
+                + observed + "\")\r\nexit /b 0\r\n");
+        assertEquals(0, execute(), Files.readString(LauncherSelfUpdate.helperLog(report)));
+        assertEquals("present", Files.readString(observed).trim(), "the MSI was deleted while installing");
+        assertEquals("installed:0.1.1", Files.readString(report));
+        assertFalse(Files.exists(msi.getParent()), "the MSI is removed once the installer has exited");
+        assertTrue(Files.readString(LauncherSelfUpdate.helperLog(report)).contains("Windows Installer exited with 0"));
+        awaitReopen();
+    }
+
     @Test void failedCompletionWriteIsLoggedAndCannotSilentlyRelaunch() throws Exception {
         Files.delete(report);
         assertNotEquals(0, execute());
