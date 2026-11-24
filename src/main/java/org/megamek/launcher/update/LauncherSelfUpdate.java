@@ -810,17 +810,27 @@ public final class LauncherSelfUpdate {
 
     static String handoffScript(Path file, String version, String sha256, Path report, long parentPid,
                                 Path launcher, Path installer) {
+        return handoffScript(file, version, sha256, report, parentPid, launcher, installer,
+                "Global\\_MSIExecute");
+    }
+
+    static String handoffScript(Path file, String version, String sha256, Path report, long parentPid,
+                                Path launcher, Path installer, String installerMutex) {
         Path directory = file.getParent();
         return "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';"
                 + "$report=" + literal(report.toString()) + ";$msi=" + literal(file.toString()) + ";"
                 + "$dir=" + literal(directory.toString()) + ";"
                 + "$installerLog=" + literal(installerLog(report).toString()) + ";"
                 + "$outcome='';$installerStarted=$false;$installerExited=$false;"
-                // Windows Installer holds this mutex while any installation is executing.
+                // Windows Installer owns this mutex while an installation is executing. The mutex
+                // can outlive an installation, so test ownership rather than existence.
                 + "function Test-InstallerBusy { try {"
-                + "[Threading.Mutex]::OpenExisting('Global\\_MSIExecute').Dispose();$true }"
-                + " catch [Threading.WaitHandleCannotBeOpenedException] { $false }"
-                + " catch [UnauthorizedAccessException] { $true } };"
+                + "$m=[Threading.Mutex]::OpenExisting(" + literal(installerMutex) + ") }"
+                + " catch [Threading.WaitHandleCannotBeOpenedException] { return $false }"
+                + " catch [UnauthorizedAccessException] { return $true };"
+                + "try { try { $acquired=$m.WaitOne(0) }"
+                + " catch [Threading.AbandonedMutexException] { $acquired=$true };"
+                + "if($acquired) { $m.ReleaseMutex() }; !$acquired } finally { $m.Dispose() } };"
                 + "try {"
                 + "Import-Module ([IO.Path]::Combine($PSHOME,'Modules','Microsoft.PowerShell.Utility',"
                 + "'Microsoft.PowerShell.Utility.psd1'));"

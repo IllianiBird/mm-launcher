@@ -321,6 +321,8 @@ class WindowsMsiUpdateTest {
         assertTrue(script.indexOf("$p.WaitForExit()") < script.indexOf("$installerExited=$true"));
         assertTrue(script.contains("staged MSI kept"));
         assertTrue(script.indexOf("Test-InstallerBusy) {") < script.indexOf("[IO.File]::Delete($msi)"));
+        assertTrue(script.contains("'Global\\_MSIExecute'") && script.contains("$m.WaitOne(0)"),
+                "installer activity is mutex ownership, not existence");
         assertTrue(script.indexOf("IsNullOrEmpty($outcome)") < script.indexOf("[IO.File]::Replace"));
     }
 
