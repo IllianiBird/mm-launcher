@@ -128,6 +128,8 @@ class HomeLaunchSplitButtonTest {
                 frame.setLocation(400, 200);
                 frame.setVisible(true);
             });
+            // A late window-manager move would close the popup before it can be measured.
+            SwingTestSupport.awaitSettled(frame);
             HomeLaunchSplitButton split = holder[0];
             assertEquals("Launch MegaMek", split.primaryButton().getText());
             assertEquals("Core · 1.0.0", ButtonDetail.detail(split.primaryButton()));
