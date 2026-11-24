@@ -732,6 +732,11 @@ public final class LauncherSelfUpdate {
             result = new ReportResult(false, LocalizedText.of(BUNDLE,
                     "LauncherSelfUpdate.previousIncomplete", outcome.replaceAll("\\p{Cntrl}", " "),
                     helperLog(report), failedOrInstallerLog(report, outcome)));
+        } else if (outcome.isEmpty()) {
+            // Older helpers wrote nothing when Windows PowerShell lost the installer's exit code.
+            result = new ReportResult(false, LocalizedText.of(BUNDLE,
+                    "LauncherSelfUpdate.installerResultMissing", runningVersion,
+                    helperLog(report), installerLog(report)));
         } else {
             throw new IOException("Unrecognized launcher update result. The report was retained at "
                     + report + " for inspection; do not retry until it is resolved.");
@@ -779,7 +784,7 @@ public final class LauncherSelfUpdate {
     static String handoffScript(Path file, String version, String sha256, Path report, long parentPid) {
         return handoffScript(file, version, sha256, report, parentPid,
                 Path.of(System.getProperty("jpackage.app-path", "MegaMek Launcher.exe")),
-                Path.of("msiexec.exe"));
+                Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"), "System32", "msiexec.exe"));
     }
 
     public static Path helperLog(Path report) {
@@ -805,27 +810,63 @@ public final class LauncherSelfUpdate {
 
     static String handoffScript(Path file, String version, String sha256, Path report, long parentPid,
                                 Path launcher, Path installer) {
+        return handoffScript(file, version, sha256, report, parentPid, launcher, installer,
+                "Global\\_MSIExecute");
+    }
+
+    static String handoffScript(Path file, String version, String sha256, Path report, long parentPid,
+                                Path launcher, Path installer, String installerMutex) {
         Path directory = file.getParent();
         return "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue';"
                 + "$report=" + literal(report.toString()) + ";$msi=" + literal(file.toString()) + ";"
                 + "$dir=" + literal(directory.toString()) + ";"
                 + "$installerLog=" + literal(installerLog(report).toString()) + ";"
-                + "$outcome='';try {"
+                + "$outcome='';$installerStarted=$false;$installerExited=$false;"
+                // Windows Installer owns this mutex while an installation is executing. The mutex
+                // can outlive an installation, so test ownership rather than existence.
+                + "function Test-InstallerBusy { try {"
+                + "$m=[Threading.Mutex]::OpenExisting(" + literal(installerMutex) + ") }"
+                + " catch [Threading.WaitHandleCannotBeOpenedException] { return $false }"
+                + " catch [UnauthorizedAccessException] { return $true };"
+                + "try { try { $acquired=$m.WaitOne(0) }"
+                + " catch [Threading.AbandonedMutexException] { $acquired=$true };"
+                + "if($acquired) { $m.ReleaseMutex() }; !$acquired } finally { $m.Dispose() } };"
+                + "try {"
                 + "Import-Module ([IO.Path]::Combine($PSHOME,'Modules','Microsoft.PowerShell.Utility',"
                 + "'Microsoft.PowerShell.Utility.psd1'));"
                 + "Write-Output 'Waiting for launcher shutdown';while(Get-Process -Id " + parentPid
                 + " -ErrorAction SilentlyContinue){Start-Sleep -Milliseconds 500};"
                 + "if((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ine "
                 + literal(sha256) + "){throw 'Staged MSI digest changed'};"
-                + "Write-Output 'Starting Windows Installer';$p=Start-Process -FilePath " + literal(installer.toString())
-                + " -ArgumentList " + installerArguments("$msi")
-                + " -Wait -PassThru; if($p.ExitCode -eq 0)"
+                + "Write-Output 'Starting Windows Installer';"
+                // Start-Process can return without waiting or without an exit code when the shell
+                // launch is intercepted; a directly owned process handle always reports its exit.
+                + "$start=New-Object Diagnostics.ProcessStartInfo;"
+                + "$start.FileName=" + literal(installer.toString()) + ";"
+                + "$start.Arguments=(" + installerArguments("$msi") + " -join ' ');"
+                + "$start.UseShellExecute=$false;"
+                + "$p=[Diagnostics.Process]::Start($start);"
+                + "if($null -eq $p){throw 'Windows Installer did not start'};$installerStarted=$true;"
+                + "$p.WaitForExit();"
+                + "if(!$p.HasExited){throw 'Windows Installer exit was not confirmed'};"
+                + "$code=$p.ExitCode;if($null -eq $code){throw 'Windows Installer did not report an exit code'};"
+                + "$installerExited=$true;Write-Output ('Windows Installer exited with '+$code);"
+                + "if($code -eq 0)"
                 + " { $outcome=" + literal("installed:" + version) + " }"
-                + " elseif($p.ExitCode -eq 3010)"
+                + " elseif($code -eq 3010)"
                 + " { $outcome=" + literal("installed-reboot-required:" + version) + " }"
-                + " else { $outcome=[string]$p.ExitCode } }"
+                + " else { $outcome=[string]$code } }"
                 + "catch { $outcome='handoff failed: '+$_.Exception.Message;Write-Error $_ -ErrorAction Continue }"
-                + "finally { try {"
+                + "finally { if([string]::IsNullOrEmpty($outcome))"
+                + " { $outcome='handoff failed: Windows Installer result was not recorded' };"
+                + "try {"
+                // Windows Installer may read the source MSI until it finishes; never delete it earlier.
+                + "if($installerStarted -and !$installerExited)"
+                + " { throw 'Windows Installer exit was not confirmed; staged MSI kept' };"
+                + "if($installerStarted) { $deadline=[DateTime]::UtcNow.AddMinutes(5);"
+                + "while(Test-InstallerBusy) { if([DateTime]::UtcNow -ge $deadline)"
+                + " { throw 'Windows Installer is still busy; staged MSI kept' };"
+                + "Start-Sleep -Milliseconds 500 } };"
                 + "if(([IO.File]::GetAttributes($dir) -band [IO.FileAttributes]::ReparsePoint) -eq 0"
                 + " -and [IO.File]::Exists($msi)"
                 + " -and ([IO.File]::GetAttributes($msi) -band [IO.FileAttributes]::ReparsePoint) -eq 0"

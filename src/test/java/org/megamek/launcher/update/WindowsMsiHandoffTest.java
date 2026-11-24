@@ -30,10 +30,12 @@ class WindowsMsiHandoffTest {
     private Path installer;
     private Path launcher;
     private String sha256;
+    private String mutex;
 
     @BeforeEach void prepareSafeSubstitutes() throws Exception {
         assumeTrue(System.getProperty("os.name", "").startsWith("Windows"),
                 "material helper execution requires Windows PowerShell");
+        mutex = "Local\\mm-launcher-test-" + java.util.UUID.randomUUID();
         Path staging = Files.createDirectory(temp.resolve("staged MSI & ' spaces"));
         msi = staging.resolve("MegaMek-Launcher-0.1.1-windows-x64.msi");
         Files.writeString(msi, "fixture: not an actual installer");
@@ -61,16 +63,33 @@ class WindowsMsiHandoffTest {
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
     }
 
+    private String script() {
+        return LauncherSelfUpdate.handoffScript(msi, "0.1.1", sha256, report,
+                Integer.MAX_VALUE, launcher, installer, mutex);
+    }
+
     private int execute() throws Exception {
-        String script = LauncherSelfUpdate.handoffScript(msi, "0.1.1", sha256, report,
-                Integer.MAX_VALUE, launcher, installer);
-        Process helper = start(script, LauncherSelfUpdate.helperLog(report));
+        Process helper = start(script(), LauncherSelfUpdate.helperLog(report));
         try {
             assertTrue(helper.waitFor(30, TimeUnit.SECONDS), "helper exceeded timeout");
             return helper.exitValue();
         } finally {
             if (helper.isAlive()) helper.destroyForcibly();
         }
+    }
+
+    /** Holds a handle to the substitute installer mutex until {@code release} exists. */
+    private Process holdMutex(boolean owned, String name) throws Exception {
+        Path ready = temp.resolve(name + ".ready");
+        Path release = temp.resolve("release-mutex");
+        Process holder = start("$m=New-Object Threading.Mutex($false,'" + mutex + "');"
+                + (owned ? "[void]$m.WaitOne();" : "")
+                + "[IO.File]::WriteAllText('" + ready.toString().replace("'", "''") + "','ready');"
+                + "while(![IO.File]::Exists('" + release.toString().replace("'", "''") + "'))"
+                + "{Start-Sleep -Milliseconds 50};" + (owned ? "$m.ReleaseMutex();" : "") + "$m.Dispose()",
+                temp.resolve(name + ".log"));
+        await(() -> Files.exists(ready));
+        return holder;
     }
 
     private static void await(BooleanSupplier condition) throws Exception {
@@ -112,7 +131,7 @@ class WindowsMsiHandoffTest {
         Process parent = start("while(!(Test-Path -LiteralPath '" + literal
                 + "')){Start-Sleep -Milliseconds 50}", temp.resolve("parent.log"));
         Process helper = start(LauncherSelfUpdate.handoffScript(msi, "0.1.1", sha256, report,
-                parent.pid(), launcher, installer), LauncherSelfUpdate.helperLog(report));
+                parent.pid(), launcher, installer, mutex), LauncherSelfUpdate.helperLog(report));
         try {
             await(() -> {
                 try {
@@ -211,6 +230,79 @@ class WindowsMsiHandoffTest {
             assertTrue(result.installed());
             assertTrue(result.message().contains("cleanup failed"));
             assertEquals(code == 3010, result.message().contains("computer restart"));
+        }
+    }
+
+    @Test void stagedMsiRemainsUntilTheInstallerHasExited() throws Exception {
+        Path observed = temp.resolve("observed.txt");
+        Files.writeString(installer, "@echo off\r\nping -n 3 127.0.0.1 > nul\r\n"
+                + "if exist \"" + msi + "\" (echo present> \"" + observed + "\") else (echo missing> \""
+                + observed + "\")\r\nexit /b 0\r\n");
+        assertEquals(0, execute(), Files.readString(LauncherSelfUpdate.helperLog(report)));
+        assertEquals("present", Files.readString(observed).trim(), "the MSI was deleted while installing");
+        assertEquals("installed:0.1.1", Files.readString(report));
+        assertFalse(Files.exists(msi.getParent()), "the MSI is removed once the installer has exited");
+        assertTrue(Files.readString(LauncherSelfUpdate.helperLog(report)).contains("Windows Installer exited with 0"));
+        awaitReopen();
+    }
+
+    @Test void ownedInstallerMutexDelaysCleanupAndRelaunchUntilReleased() throws Exception {
+        Process holder = holdMutex(true, "owner");
+        Process helper = start(script(), LauncherSelfUpdate.helperLog(report));
+        try {
+            await(() -> {
+                try {
+                    return Files.readString(LauncherSelfUpdate.helperLog(report))
+                            .contains("Windows Installer exited with 0");
+                } catch (java.io.IOException error) {
+                    throw new java.io.UncheckedIOException(error);
+                }
+            });
+            Thread.sleep(1000);
+            assertTrue(Files.exists(msi), "the MSI must stay while Windows Installer is busy");
+            assertEquals("pending", Files.readString(report));
+            assertFalse(Files.exists(reopened));
+            Files.writeString(temp.resolve("release-mutex"), "release");
+            assertTrue(helper.waitFor(30, TimeUnit.SECONDS), "helper exceeded timeout");
+            assertEquals("installed:0.1.1", Files.readString(report));
+            assertFalse(Files.exists(msi.getParent()));
+            awaitReopen();
+        } finally {
+            if (helper.isAlive()) helper.destroyForcibly();
+            Files.writeString(temp.resolve("release-mutex"), "release");
+            if (!holder.waitFor(15, TimeUnit.SECONDS)) holder.destroyForcibly();
+        }
+    }
+
+    private void resetFixture() throws Exception {
+        Files.createDirectories(msi.getParent());
+        Files.writeString(msi, "fixture: not an actual installer");
+        Files.writeString(report, "pending");
+        Files.deleteIfExists(reopened);
+    }
+
+    private void assertPromptCleanInstall() throws Exception {
+        long started = System.nanoTime();
+        assertEquals(0, execute(), Files.readString(LauncherSelfUpdate.helperLog(report)));
+        assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() < 20,
+                "a free installer mutex must not delay completion");
+        assertEquals("installed:0.1.1", Files.readString(report));
+        assertFalse(Files.exists(msi.getParent()));
+        awaitReopen();
+    }
+
+    @Test void unownedOrAbandonedInstallerMutexDoesNotDelayCleanup() throws Exception {
+        Process keeper = holdMutex(false, "keeper");
+        try {
+            assertPromptCleanInstall();
+            Process owner = holdMutex(true, "owner");
+            owner.destroyForcibly();
+            assertTrue(owner.waitFor(15, TimeUnit.SECONDS));
+            resetFixture();
+            assertPromptCleanInstall();
+        } finally {
+            Files.writeString(temp.resolve("release-mutex"), "release");
+            if (!keeper.waitFor(15, TimeUnit.SECONDS)) keeper.destroyForcibly();
         }
     }
 

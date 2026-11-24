@@ -134,7 +134,8 @@ details are saved in local operation logs. Old reports without a target remain a
 previous result, not a claimed successful update, after checking that the old
 helper is absent and the system confirms the current installation. A successful installation
 with staged installer cleanup failure is reported as a cleanup warning, not as an
-installation failure. Pending or unrecognized results remain for review; a
+installation failure. Pending or unrecognized results remain for review, except that an
+empty Windows result from an older helper is shown as a failed update and acknowledged; a
 completed result is acknowledged before the release lookup, even when offline.
 Helper output and installer diagnostics are retained beside the registry
 as `msi-update-helper.log` and `msi-update-installer.log` on Windows (a failed installation's
