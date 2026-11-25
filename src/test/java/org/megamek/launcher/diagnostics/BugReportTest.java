@@ -62,7 +62,7 @@ class BugReportTest {
     private static final Path TEMPLATE = Path.of(".github", "ISSUE_TEMPLATE", "bug_report.yml");
     private static final BugReport.Environment FIXTURE = new BugReport.Environment(
             "0.14.24", "Windows installer (.msi)", "Windows 11 (10.0.26200) amd64",
-            "Eclipse Adoptium 21.0.8");
+            "Eclipse Adoptium 21.0.8", "16 threads", "32 GB (18 GB free)", "512 MB", "en-CA");
 
     @TempDir Path temp;
 
@@ -75,6 +75,10 @@ class BugReportTest {
         assertEquals("Windows installer (.msi)", query.get(BugReport.FIELD_INSTALL_TYPE));
         assertEquals("Windows 11 (10.0.26200) amd64", query.get(BugReport.FIELD_OPERATING_SYSTEM));
         assertEquals("Eclipse Adoptium 21.0.8", query.get(BugReport.FIELD_JAVA_VERSION));
+        assertEquals("16 threads", query.get(BugReport.FIELD_PROCESSOR));
+        assertEquals("32 GB (18 GB free)", query.get(BugReport.FIELD_SYSTEM_MEMORY));
+        assertEquals("512 MB", query.get(BugReport.FIELD_JAVA_MAX_MEMORY));
+        assertEquals("en-CA", query.get(BugReport.FIELD_LOCALE));
         assertFalse(query.containsKey("labels"),
                 "GitHub serves a 404 to reporters without triage permission when labels are set");
     }
@@ -82,7 +86,8 @@ class BugReportTest {
     @Test
     void overlongDetailsFallBackToThePlainForm() {
         URI form = BugReport.issueForm(new BugReport.Environment("x".repeat(4000),
-                "Portable archive", "y".repeat(4000), "z"));
+                "Portable archive", "y".repeat(4000), "z", "16 threads", "32 GB (18 GB free)",
+                "512 MB", "en-CA"));
         assertEquals(BugReport.ISSUE_FORM_URL + "?template=bug_report.yml", form.toString());
     }
 
@@ -94,7 +99,9 @@ class BugReportTest {
             if (element.hasNonNull("id")) ids.add(element.get("id").asText());
         }
         for (String field : new String[]{BugReport.FIELD_VERSION, BugReport.FIELD_INSTALL_TYPE,
-                BugReport.FIELD_OPERATING_SYSTEM, BugReport.FIELD_JAVA_VERSION}) {
+                BugReport.FIELD_OPERATING_SYSTEM, BugReport.FIELD_JAVA_VERSION,
+                BugReport.FIELD_PROCESSOR, BugReport.FIELD_SYSTEM_MEMORY,
+                BugReport.FIELD_JAVA_MAX_MEMORY, BugReport.FIELD_LOCALE}) {
             assertTrue(ids.contains(field), field + " is a field of " + TEMPLATE);
         }
         assertEquals(BugReport.TEMPLATE, TEMPLATE.getFileName().toString());
@@ -116,6 +123,24 @@ class BugReportTest {
     }
 
     @Test
+    void memoryIsShownLikeTheSuiteLogHeader() {
+        long gigabyte = 1024L * 1024L * 1024L;
+        assertEquals("32 GB (18 GB free)", BugReport.describeSystemMemory(32 * gigabyte, 18 * gigabyte));
+        assertEquals("4 GB", BugReport.describeMemorySize(4 * gigabyte));
+        assertEquals("512 MB", BugReport.describeMemorySize(512L * 1024L * 1024L),
+                "a limit under 1 GB would otherwise read as 0 GB or 1 GB");
+    }
+
+    @Test
+    void currentEnvironmentFillsEveryHardwareField() {
+        BugReport.Environment environment = BugReport.Environment.current();
+        assertTrue(environment.processor().endsWith(" threads"), environment.processor());
+        assertFalse(environment.systemMemory().isBlank());
+        assertFalse(environment.javaMaxMemory().isBlank());
+        assertFalse(environment.locale().isBlank());
+    }
+
+    @Test
     void archiveFileNameIsPortable() {
         assertEquals("MegaMek-Launcher-bug-report-2026-10-31T181500Z.zip",
                 BugReport.archiveFileName(Instant.parse("2026-10-31T18:15:00.123Z")));
@@ -132,6 +157,8 @@ class BugReportTest {
         assertEquals(Set.of("system-info.txt", "operation-logs.txt"), entries.keySet());
         assertTrue(entries.get("system-info.txt").contains("Launcher version: 0.14.24"));
         assertTrue(entries.get("system-info.txt").contains("Installed as: Windows installer (.msi)"));
+        assertTrue(entries.get("system-info.txt").contains("System memory: 32 GB (18 GB free)"));
+        assertTrue(entries.get("system-info.txt").contains("Locale: en-CA"));
         String logs = entries.get("operation-logs.txt");
         assertFalse(logs.contains(home), "the home directory is shortened");
         assertTrue(logs.contains("~"));

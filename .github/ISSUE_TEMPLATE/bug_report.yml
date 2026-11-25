@@ -10,7 +10,7 @@ body:
       value: |
         The quickest way to file this is **Report a bug** in the launcher - on Home next to
         **Join Discord**, in **Settings > Diagnostics**, or on any error dialog. It fills in the
-        version fields below for you and can save the launcher's diagnostics as a single ZIP.
+        version and system fields below for you and can save the launcher's diagnostics as a single ZIP.
 
         Problems that happen *inside* MegaMek, MegaMekLab or MekHQ after they start should be
         reported from that program's **Help > Report a Bug**.
@@ -99,6 +99,34 @@ body:
       label: "Java Version"
       description: "The Java runtime running the launcher. Filled in for you from the launcher."
       placeholder: "Example: Eclipse Adoptium 21.0.8"
+
+  - type: input
+    id: cpu
+    attributes:
+      label: "CPU"
+      description: "Optional. Filled in for you from the launcher: the number of processor threads."
+      placeholder: "Example: 16 threads"
+
+  - type: input
+    id: system-memory
+    attributes:
+      label: "System memory"
+      description: "Optional. Installed memory, and how much was free when the form was opened."
+      placeholder: "Example: 32 GB (18 GB free)"
+
+  - type: input
+    id: java-max-memory
+    attributes:
+      label: "Java max memory"
+      description: "Optional. The most memory the launcher's Java is allowed to use."
+      placeholder: "Example: 512 MB"
+
+  - type: input
+    id: locale
+    attributes:
+      label: "Locale"
+      description: "Optional. Your system language and region, which change how numbers and text are shown."
+      placeholder: "Example: en-CA"
 
   - type: checkboxes
     id: final-checks
